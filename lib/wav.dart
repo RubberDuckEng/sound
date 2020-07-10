@@ -9,6 +9,52 @@ void main() {
   print("chunkId: ${wav.chunkId}");
   print("chunkSize: ${wav.chunkSize}");
   print("format: ${wav.format}");
+  print("subchunk1Id: ${wav.subchunk1Id}");
+  print("subchunk1Size: ${wav.subchunk1Size}");
+  print("audioFormat: ${wav.audioFormat}");
+  print("numChannels: ${wav.numChannels}");
+  print("sampleRate: ${wav.sampleRate}");
+  print("byteRate: ${wav.byteRate}");
+  print("blockAlign: ${wav.blockAlign}");
+  print("bitsPerSample: ${wav.bitsPerSample}");
+}
+
+class RiffChunk {
+  final int offset;
+
+  final String id;
+  final int size;
+
+  RiffChunk({this.offset, this.id, this.size});
+}
+
+class RiffParser {
+  final RandomAccessFile _bytes;
+  RiffParser(this._bytes);
+
+  /// Next read is set after id and size.
+  void seekToAfter(RiffChunk chunk) {
+    int nextChunkOffset = chunk.offset + chunk.size;
+    _bytes.setPositionSync(nextChunkOffset);
+  }
+
+  RiffChunk readChunkHeader() {
+    int offset = _bytes.positionSync();
+    String id = readChunkId();
+    int size = readInt32();
+
+    return RiffChunk(
+      offset: offset,
+      id: id,
+      size: size,
+    );
+  }
+
+  int readInt16() =>
+      _bytes.readSync(2).buffer.asByteData().getInt16(0, Endian.little);
+  int readInt32() =>
+      _bytes.readSync(4).buffer.asByteData().getInt32(0, Endian.little);
+  String readChunkId() => String.fromCharCodes(_bytes.readSync(4));
 }
 
 class WavFile {
@@ -16,11 +62,38 @@ class WavFile {
   int chunkSize;
   String format;
 
-  WavFile(RandomAccessFile bytes) {
-    chunkId = String.fromCharCodes(bytes.readSync(4));
-    chunkSize =
-        bytes.readSync(4).buffer.asByteData().getInt32(0, Endian.little);
-    format = String.fromCharCodes(bytes.readSync(4));
+  // Format Chunk:
+  String subchunk1Id;
+  int subchunk1Size;
+  int audioFormat;
+  int numChannels;
+  int sampleRate;
+  int byteRate;
+  int blockAlign;
+  int bitsPerSample;
+
+  WavFile(var bytes) {
+    RiffParser parser = RiffParser(bytes);
+    RiffChunk root = parser.readChunkHeader();
+    chunkId = root.id;
+    chunkSize = root.size;
+    format = parser.readChunkId();
+    // Riff is a nested tree structure, we don't
+    // seek to the end of the chunk here since
+    // the remaining chunks are still "inside"
+    // this "root" chunk.
+
+    // Format Chunk:
+    RiffChunk formatChunk = parser.readChunkHeader();
+    subchunk1Id = formatChunk.id;
+    subchunk1Size = formatChunk.size;
+    audioFormat = parser.readInt16();
+    numChannels = parser.readInt16();
+    sampleRate = parser.readInt32();
+    byteRate = parser.readInt32();
+    blockAlign = parser.readInt16();
+    bitsPerSample = parser.readInt16();
+    parser.seekToAfter(formatChunk);
   }
 }
 
