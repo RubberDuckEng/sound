@@ -17,6 +17,21 @@ void main() {
   print("byteRate: ${wav.byteRate}");
   print("blockAlign: ${wav.blockAlign}");
   print("bitsPerSample: ${wav.bitsPerSample}");
+
+  print("subchunk2Id: ${wav.subchunk2Id}");
+  print("subchunk2Size: ${wav.subchunk2Size}");
+
+  var samples = Int16List(8);
+  int sampleCount = wav.readSamples(samples);
+  print("sampleCount: $sampleCount");
+  print("sample[0]: ${samples[0]}");
+  print("sample[1]: ${samples[1]}");
+  print("sample[2]: ${samples[2]}");
+  print("sample[3]: ${samples[3]}");
+  print("sample[4]: ${samples[4]}");
+  print("sample[5]: ${samples[5]}");
+  print("sample[6]: ${samples[6]}");
+  print("sample[7]: ${samples[7]}");
 }
 
 class RiffChunk {
@@ -34,8 +49,13 @@ class RiffParser {
 
   /// Next read is set after id and size.
   void seekToAfter(RiffChunk chunk) {
-    int nextChunkOffset = chunk.offset + chunk.size;
+    const headerSize = 8;
+    int nextChunkOffset = chunk.offset + chunk.size + headerSize;
     _bytes.setPositionSync(nextChunkOffset);
+  }
+
+  void seekToOffset(int offset) {
+    _bytes.setPositionSync(offset);
   }
 
   RiffChunk readChunkHeader() {
@@ -50,14 +70,24 @@ class RiffParser {
     );
   }
 
+  int get currrentOffset => _bytes.positionSync();
+
   int readInt16() =>
       _bytes.readSync(2).buffer.asByteData().getInt16(0, Endian.little);
   int readInt32() =>
       _bytes.readSync(4).buffer.asByteData().getInt32(0, Endian.little);
   String readChunkId() => String.fromCharCodes(_bytes.readSync(4));
+
+  // Returns the number of samples read.
+  int readInto(Int16List samples) {
+    int bytesRead = _bytes.readIntoSync(samples.buffer.asUint8List());
+    return bytesRead ~/ 2;
+  }
 }
 
 class WavFile {
+  RiffParser parser;
+
   String chunkId;
   int chunkSize;
   String format;
@@ -72,8 +102,13 @@ class WavFile {
   int blockAlign;
   int bitsPerSample;
 
+  // Data Chunk:
+  String subchunk2Id;
+  int subchunk2Size;
+  int samplesStartOffset;
+
   WavFile(var bytes) {
-    RiffParser parser = RiffParser(bytes);
+    parser = RiffParser(bytes);
     RiffChunk root = parser.readChunkHeader();
     chunkId = root.id;
     chunkSize = root.size;
@@ -93,8 +128,33 @@ class WavFile {
     byteRate = parser.readInt32();
     blockAlign = parser.readInt16();
     bitsPerSample = parser.readInt16();
+    assert(bitsPerSample == 16);
     parser.seekToAfter(formatChunk);
+
+    // Data Chunk:
+    RiffChunk dataChunk = parser.readChunkHeader();
+    subchunk2Id = dataChunk.id;
+    subchunk2Size = dataChunk.size;
+    samplesStartOffset = parser.currrentOffset;
+    // There may be a mystery chunk after this?
   }
+
+  int readSamples(Int16List samples) {
+    return parser.readInto(samples);
+  }
+
+  void readSamplesAtSeekTime(Duration now, Int16List samples) {
+    samples.fillRange(0, samples.length, 0);
+    int nowAsOffset =
+        now.inMicroseconds * byteRate ~/ Duration.microsecondsPerSecond;
+    // Make sure our computed offset is at a sample start.
+    nowAsOffset -= nowAsOffset % blockAlign;
+    parser.seekToOffset(samplesStartOffset + nowAsOffset);
+    parser.readInto(samples);
+  }
+
+  Duration get duration => Duration(
+      microseconds: Duration.microsecondsPerSecond * subchunk2Size ~/ byteRate);
 }
 
 // The canonical WAVE format starts with the RIFF header:

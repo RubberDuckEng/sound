@@ -1,6 +1,16 @@
 import 'package:flutter/material.dart';
+import 'wav.dart';
+import 'dart:typed_data';
+import 'dart:io';
+import 'dart:ui';
+
+WavFile gWav;
 
 void main() {
+  var file =
+      File('/Users/eseidel/Projects/rubberduck/sound/examples/example.wav');
+  var openFile = file.openSync();
+  gWav = WavFile(openFile);
   runApp(MyApp());
 }
 
@@ -11,19 +21,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Flutter Demo',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or simply save your changes to "hot reload" in a Flutter IDE).
-        // Notice that the counter didn't reset back to zero; the application
-        // is not restarted.
         primarySwatch: Colors.blue,
-        // This makes the visual density adapt to the platform that you run
-        // the app on. For desktop platforms, the controls will be smaller and
-        // closer together (more dense) than on mobile platforms.
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
       home: MyHomePage(title: 'Flutter Demo Home Page'),
@@ -31,17 +29,123 @@ class MyApp extends StatelessWidget {
   }
 }
 
+class SamplePainter extends CustomPainter {
+  // The client must not mutate |samples| after passing the list to this object.
+  final Int16List samples;
+
+  SamplePainter(this.samples);
+
+  void paint(Canvas canvas, Size size) {
+    var leftPath = Path();
+    var rightPath = Path();
+    int sampleCount = samples.length ~/ 2;
+    double xStep = size.width / sampleCount;
+    double yRange = size.height / 2;
+
+    const double gain = 1.0;
+
+    // Integers stored in the list are truncated to their low 16 bits,
+    // interpreted as a signed 16-bit two's complement integer with values in
+    // the range -32768 to +32767.
+    double normalize(int sample) => sample / 32768.0;
+
+    void addToPath(Path path, double x, int sample) {
+      double y = gain * normalize(sample) * yRange;
+      path.lineTo(x, y);
+    }
+
+    for (int i = 0; i < sampleCount; ++i) {
+      double x = i * xStep;
+      addToPath(leftPath, x, samples[2 * i]);
+      addToPath(rightPath, x, samples[2 * i + 1]);
+    }
+
+    canvas.drawRect(Offset.zero & size, Paint()..color = Colors.yellow[100]);
+
+    canvas.save();
+    canvas.translate(0, yRange);
+    Paint paint = Paint();
+    paint.style = PaintingStyle.stroke;
+    paint.strokeWidth = 2.0;
+
+    paint.color = Colors.pink[300];
+    canvas.drawPath(leftPath, paint);
+
+    paint.color = Colors.blue[300];
+    canvas.drawPath(rightPath, paint);
+    canvas.restore();
+  }
+
+  bool shouldRepaint(SamplePainter oldDelegate) {
+    return samples != oldDelegate.samples;
+  }
+}
+
+class SamplePlot extends AnimatedWidget {
+  const SamplePlot({Key key, this.wav, Animation<Duration> animation})
+      : super(key: key, listenable: animation);
+
+  final WavFile wav;
+
+  Animation<Duration> get _progress => listenable;
+
+  @override
+  Widget build(BuildContext context) {
+    Duration now = _progress.value;
+    Int16List samples = Int16List(8000);
+    wav.readSamplesAtSeekTime(now, samples);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+            child: CustomPaint(
+          painter: SamplePainter(samples),
+        )),
+        Text("Offset: $now"),
+      ],
+    );
+  }
+}
+
+class WavPlayer extends StatefulWidget {
+  WavPlayer({Key key, this.wav}) : super(key: key);
+
+  final WavFile wav;
+
+  @override
+  _WavPlayerState createState() => _WavPlayerState();
+}
+
+class _WavPlayerState extends State<WavPlayer> with TickerProviderStateMixin {
+  AnimationController _controller;
+  Animation<Duration> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: widget.wav.duration,
+      vsync: this,
+    )..repeat();
+    _animation = _controller.drive(
+        Tween<Duration>(begin: const Duration(), end: widget.wav.duration));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SamplePlot(wav: widget.wav, animation: _animation);
+  }
+}
+
 class MyHomePage extends StatefulWidget {
   MyHomePage({Key key, this.title}) : super(key: key);
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
 
   final String title;
 
@@ -50,68 +154,15 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
         // Here we take the value from the MyHomePage object that was created by
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug painting" (press "p" in the console, choose the
-          // "Toggle Debug Paint" action from the Flutter Inspector in Android
-          // Studio, or the "Toggle Debug Paint" command in Visual Studio Code)
-          // to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headline4,
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      body: SizedBox.expand(child: WavPlayer(wav: gWav)),
     );
   }
 }
