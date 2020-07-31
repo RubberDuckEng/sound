@@ -1,4 +1,5 @@
 import "dart:io";
+import "dart:math";
 import "dart:typed_data";
 
 void main() {
@@ -22,7 +23,7 @@ void main() {
   print("subchunk2Size: ${wav.subchunk2Size}");
 
   var samples = Int16List(8);
-  int sampleCount = wav.readSamples(samples);
+  int sampleCount = wav.readSamples(samples, samples.length);
   print("sampleCount: $sampleCount");
   print("sample[0]: ${samples[0]}");
   print("sample[1]: ${samples[1]}");
@@ -79,8 +80,9 @@ class RiffParser {
   String readChunkId() => String.fromCharCodes(_bytes.readSync(4));
 
   // Returns the number of samples read.
-  int readInto(Int16List samples) {
-    int bytesRead = _bytes.readIntoSync(samples.buffer.asUint8List());
+  int readInto(Int16List samples, int count) {
+    int bytesRead =
+        _bytes.readIntoSync(samples.buffer.asUint8List(), 0, count * 2);
     return bytesRead ~/ 2;
   }
 }
@@ -139,18 +141,25 @@ class WavFile {
     // There may be a mystery chunk after this?
   }
 
-  int readSamples(Int16List samples) {
-    return parser.readInto(samples);
+  int readSamples(Int16List samples, int count) {
+    return parser.readInto(samples, count);
   }
 
   void readSamplesAtSeekTime(Duration now, Int16List samples) {
-    samples.fillRange(0, samples.length, 0);
-    int nowAsOffset =
-        now.inMicroseconds * byteRate ~/ Duration.microsecondsPerSecond;
-    // Make sure our computed offset is at a sample start.
-    nowAsOffset -= nowAsOffset % blockAlign;
+    samples.fillRange(0, samples.length, 0); // Zero the buffer
+
+    int asOffset(Duration duration) {
+      int offset =
+          duration.inMicroseconds * byteRate ~/ Duration.microsecondsPerSecond;
+      // Make sure our computed offset is at a sample start.
+      return offset - offset % blockAlign;
+    }
+
+    int nowAsOffset = asOffset(now);
     parser.seekToOffset(samplesStartOffset + nowAsOffset);
-    parser.readInto(samples);
+    // Convert from bytes back to samples (always 16 bit samples aka 2 bytes).
+    int samplesRemaining = (subchunk2Size - nowAsOffset) ~/ 2;
+    parser.readInto(samples, min(samplesRemaining, samples.length));
   }
 
   Duration get duration => Duration(

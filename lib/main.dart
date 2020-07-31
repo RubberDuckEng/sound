@@ -82,10 +82,12 @@ class SamplePainter extends CustomPainter {
 }
 
 class SamplePlot extends AnimatedWidget {
-  const SamplePlot({Key key, this.wav, Animation<Duration> animation})
+  const SamplePlot(
+      {Key key, this.wav, Animation<Duration> animation, this.controller})
       : super(key: key, listenable: animation);
 
   final WavFile wav;
+  final AnimationController controller;
 
   Animation<Duration> get _progress => listenable;
 
@@ -102,7 +104,27 @@ class SamplePlot extends AnimatedWidget {
             child: CustomPaint(
           painter: SamplePainter(samples),
         )),
-        Text("Offset: $now"),
+        Row(children: [
+          IconButton(
+              icon:
+                  Icon(controller.isAnimating ? Icons.pause : Icons.play_arrow),
+              onPressed: () {
+                if (controller.isAnimating) {
+                  controller.stop();
+                } else {
+                  controller.repeat();
+                }
+              }),
+          Expanded(
+            child: Slider(
+              value: controller.value,
+              onChanged: (value) {
+                controller.value = value;
+              },
+            ),
+          ),
+          Text("Offset: $now"),
+        ])
       ],
     );
   }
@@ -127,7 +149,7 @@ class _WavPlayerState extends State<WavPlayer> with TickerProviderStateMixin {
     _controller = AnimationController(
       duration: widget.wav.duration,
       vsync: this,
-    )..repeat();
+    );
     _animation = _controller.drive(
         Tween<Duration>(begin: const Duration(), end: widget.wav.duration));
   }
@@ -140,7 +162,11 @@ class _WavPlayerState extends State<WavPlayer> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return SamplePlot(wav: widget.wav, animation: _animation);
+    return SamplePlot(
+      wav: widget.wav,
+      animation: _animation,
+      controller: _controller,
+    );
   }
 }
 
