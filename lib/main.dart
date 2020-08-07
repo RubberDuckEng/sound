@@ -3,6 +3,8 @@ import 'wav.dart';
 import 'dart:typed_data';
 import 'dart:io';
 import 'dart:ui';
+import 'package:fft/fft.dart';
+import 'package:my_complex/my_complex.dart';
 
 WavFile gWav;
 
@@ -29,16 +31,55 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class SamplePainter extends CustomPainter {
-  // The client must not mutate |samples| after passing the list to this object.
-  final Int16List samples;
+class Samples {
+  List<Int16List> channels;
 
-  SamplePainter(this.samples);
+  Samples.fromStereo(Int16List samples) {
+    int count = samples.length ~/ 2;
+    channels = <Int16List>[
+      Int16List(count),
+      Int16List(count),
+    ];
+
+    for (int i = 0; i < count; ++i) {
+      channels[0][i] = samples[i * 2];
+      channels[1][i] = samples[i * 2 + 1];
+    }
+  }
+}
+
+class Frequencies {
+  List<List<Complex>> channels;
+
+  // Assumption: Each channel in samples has a power-of-two length.
+  Frequencies.fromSamples(Samples samples) {
+    channels = samples.channels.map(FFT().Transform).toList();
+  }
+}
+
+class VisualizerModel {
+  Samples samples;
+  Frequencies frequencies;
+
+  int get sampleCount => samples.channels[0].length;
+  int get channelCount => samples.channels.length;
+
+  VisualizerModel.fromStereo(Int16List stereo) {
+    samples = Samples.fromStereo(stereo);
+    frequencies = Frequencies.fromSamples(samples);
+  }
+}
+
+class TimePainter extends CustomPainter {
+  // The client must not mutate |samples| after passing the list to this object.
+  final VisualizerModel model;
+
+  TimePainter(this.model);
 
   void paint(Canvas canvas, Size size) {
-    var leftPath = Path();
-    var rightPath = Path();
-    int sampleCount = samples.length ~/ 2;
+    int sampleCount = model.sampleCount;
+    int channelCount = model.channelCount;
+    List<Path> paths = List<Path>.generate(channelCount, (i) => Path());
     double xStep = size.width / sampleCount;
     double yRange = size.height / 2;
 
@@ -56,8 +97,9 @@ class SamplePainter extends CustomPainter {
 
     for (int i = 0; i < sampleCount; ++i) {
       double x = i * xStep;
-      addToPath(leftPath, x, samples[2 * i]);
-      addToPath(rightPath, x, samples[2 * i + 1]);
+      for (int channel = 0; channel < channelCount; ++channel) {
+        addToPath(paths[channel], x, model.samples.channels[channel][i]);
+      }
     }
 
     canvas.drawRect(Offset.zero & size, Paint()..color = Colors.yellow[100]);
@@ -69,15 +111,72 @@ class SamplePainter extends CustomPainter {
     paint.strokeWidth = 2.0;
 
     paint.color = Colors.pink[300];
-    canvas.drawPath(leftPath, paint);
+    canvas.drawPath(paths[0], paint);
 
     paint.color = Colors.blue[300];
-    canvas.drawPath(rightPath, paint);
+    canvas.drawPath(paths[1], paint);
     canvas.restore();
   }
 
-  bool shouldRepaint(SamplePainter oldDelegate) {
-    return samples != oldDelegate.samples;
+  bool shouldRepaint(TimePainter oldDelegate) {
+    return model != oldDelegate.model;
+  }
+}
+
+class FrequencyPainter extends CustomPainter {
+  // The client must not mutate |samples| after passing the list to this object.
+  final VisualizerModel model;
+
+  FrequencyPainter(this.model) {
+    print(model.frequencies.channels[0].map((c) => c.modulus));
+  }
+
+  void paint(Canvas canvas, Size size) {
+    int sampleCount = model.sampleCount;
+    int channelCount = model.channelCount;
+    List<Path> paths = List<Path>.generate(channelCount, (i) => Path());
+    double xStep = size.width / sampleCount;
+    double yRange = size.height / 2;
+
+    const double gain = 1.0;
+
+    // Integers stored in the list are truncated to their low 16 bits,
+    // interpreted as a signed 16-bit two's complement integer with values in
+    // the range -32768 to +32767.
+    double normalize(double sample) => sample / 32768.0;
+
+    void addToPath(Path path, double x, double sample) {
+      double y = gain * normalize(sample) * yRange;
+      path.lineTo(x, y);
+    }
+
+    for (int i = 0; i < sampleCount; ++i) {
+      double x = i * xStep;
+      for (int channel = 0; channel < channelCount; ++channel) {
+        addToPath(
+            paths[channel], x, model.frequencies.channels[channel][i].modulus);
+      }
+    }
+
+    canvas.drawRect(
+        Offset.zero & size, Paint()..color = Colors.lightGreen[100]);
+
+    canvas.save();
+    // canvas.translate(0, yRange);
+    Paint paint = Paint();
+    paint.style = PaintingStyle.stroke;
+    paint.strokeWidth = 2.0;
+
+    paint.color = Colors.pink[300];
+    canvas.drawPath(paths[0], paint);
+
+    paint.color = Colors.blue[300];
+    canvas.drawPath(paths[1], paint);
+    canvas.restore();
+  }
+
+  bool shouldRepaint(FrequencyPainter oldDelegate) {
+    return model != oldDelegate.model;
   }
 }
 
@@ -94,15 +193,16 @@ class SamplePlot extends AnimatedWidget {
   @override
   Widget build(BuildContext context) {
     Duration now = _progress.value;
-    Int16List samples = Int16List(8000);
-    wav.readSamplesAtSeekTime(now, samples);
+    Int16List rawSamples = Int16List(8192); // Power of two to make FFT happy.
+    wav.readSamplesAtSeekTime(now, rawSamples);
+    VisualizerModel model = VisualizerModel.fromStereo(rawSamples);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
             child: CustomPaint(
-          painter: SamplePainter(samples),
+          painter: FrequencyPainter(model), // TimePainter(model),
         )),
         Row(children: [
           IconButton(
