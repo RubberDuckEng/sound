@@ -49,11 +49,16 @@ class Samples {
 }
 
 class Frequencies {
+  static final Window _sharedWindow = Window(WindowType.HANN);
+  static final FFT _sharedFFT = FFT();
+
   List<List<Complex>> channels;
 
   // Assumption: Each channel in samples has a power-of-two length.
   Frequencies.fromSamples(Samples samples) {
-    channels = samples.channels.map(FFT().Transform).toList();
+    channels = samples.channels.map((List<num> channelData) {
+      return _sharedFFT.Transform(_sharedWindow.apply(channelData));
+    }).toList();
   }
 }
 
@@ -132,11 +137,13 @@ class FrequencyPainter extends CustomPainter {
   }
 
   void paint(Canvas canvas, Size size) {
-    int sampleCount = model.sampleCount;
+    // The samples we get from FFT are mirrored around the Y axis,
+    // we only need to show half of them.
+    int sampleCount = model.sampleCount ~/ 2;
     int channelCount = model.channelCount;
     List<Path> paths = List<Path>.generate(channelCount, (i) => Path());
     double xStep = size.width / sampleCount;
-    double yRange = size.height / 2;
+    double yRange = size.height;
 
     const double gain = 1.0;
 
@@ -147,7 +154,7 @@ class FrequencyPainter extends CustomPainter {
 
     void addToPath(Path path, double x, double sample) {
       double y = gain * normalize(sample) * yRange;
-      path.lineTo(x, y);
+      path.lineTo(x, yRange - y);
     }
 
     for (int i = 0; i < sampleCount; ++i) {
@@ -193,7 +200,9 @@ class SamplePlot extends AnimatedWidget {
   @override
   Widget build(BuildContext context) {
     Duration now = _progress.value;
-    Int16List rawSamples = Int16List(8192); // Power of two to make FFT happy.
+    // 20ms with an 8000 hz sample is about 160 samples.
+    // Moved to the closest power of two to make package:fft happy.
+    Int16List rawSamples = Int16List(256);
     wav.readSamplesAtSeekTime(now, rawSamples);
     VisualizerModel model = VisualizerModel.fromStereo(rawSamples);
 
