@@ -5,12 +5,16 @@ import 'dart:io';
 import 'dart:ui';
 import 'package:fft/fft.dart';
 import 'package:my_complex/my_complex.dart';
+import 'dart:math';
 
 WavFile gWav;
 
 void main() {
-  var file =
-      File('/Users/eseidel/Projects/rubberduck/sound/examples/example.wav');
+  String middleC =
+      '/Users/eseidel/Projects/rubberduck/sound/examples/third_party/freewavesamples.com/Casio-MT-45-Piano-C4.wav';
+  String guitar =
+      '/Users/eseidel/Projects/rubberduck/sound/examples/example.wav';
+  var file = File(guitar);
   var openFile = file.openSync();
   gWav = WavFile(openFile);
   runApp(MyApp());
@@ -132,14 +136,13 @@ class FrequencyPainter extends CustomPainter {
   // The client must not mutate |samples| after passing the list to this object.
   final VisualizerModel model;
 
-  FrequencyPainter(this.model) {
-    print(model.frequencies.channels[0].map((c) => c.modulus));
-  }
+  FrequencyPainter(this.model);
 
   void paint(Canvas canvas, Size size) {
     // The samples we get from FFT are mirrored around the Y axis,
     // we only need to show half of them.
-    int sampleCount = model.sampleCount ~/ 2;
+    // Throw away another 90% which seem to be for super high frequencies?
+    int sampleCount = model.sampleCount ~/ 20;
     int channelCount = model.channelCount;
     List<Path> paths = List<Path>.generate(channelCount, (i) => Path());
     double xStep = size.width / sampleCount;
@@ -150,7 +153,7 @@ class FrequencyPainter extends CustomPainter {
     // Integers stored in the list are truncated to their low 16 bits,
     // interpreted as a signed 16-bit two's complement integer with values in
     // the range -32768 to +32767.
-    double normalize(double sample) => sample / 32768.0;
+    double normalize(double sample) => sample / (256 * 32768.0);
 
     void addToPath(Path path, double x, double sample) {
       double y = gain * normalize(sample) * yRange;
@@ -188,31 +191,43 @@ class FrequencyPainter extends CustomPainter {
 }
 
 class SamplePlot extends AnimatedWidget {
-  const SamplePlot(
-      {Key key, this.wav, Animation<Duration> animation, this.controller})
-      : super(key: key, listenable: animation);
+  const SamplePlot({
+    Key key,
+    this.wav,
+    Animation<Duration> animation,
+    this.controller,
+    this.visualizerType,
+  }) : super(key: key, listenable: animation);
 
   final WavFile wav;
   final AnimationController controller;
+  final VisualizerType visualizerType;
 
   Animation<Duration> get _progress => listenable;
+
+  Widget _buildVisualizer(VisualizerModel model) {
+    switch (visualizerType) {
+      case VisualizerType.time:
+        return CustomPaint(painter: TimePainter(model));
+      case VisualizerType.frequency:
+        return CustomPaint(painter: FrequencyPainter(model));
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
     Duration now = _progress.value;
     // 20ms with an 8000 hz sample is about 160 samples.
     // Moved to the closest power of two to make package:fft happy.
-    Int16List rawSamples = Int16List(256);
+    Int16List rawSamples = Int16List(pow(2, 11));
     wav.readSamplesAtSeekTime(now, rawSamples);
     VisualizerModel model = VisualizerModel.fromStereo(rawSamples);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-            child: CustomPaint(
-          painter: FrequencyPainter(model), // TimePainter(model),
-        )),
+        Expanded(child: _buildVisualizer(model)),
         Row(children: [
           IconButton(
               icon:
@@ -240,9 +255,10 @@ class SamplePlot extends AnimatedWidget {
 }
 
 class WavPlayer extends StatefulWidget {
-  WavPlayer({Key key, this.wav}) : super(key: key);
+  WavPlayer({Key key, this.wav, this.visualizerType}) : super(key: key);
 
   final WavFile wav;
+  final VisualizerType visualizerType;
 
   @override
   _WavPlayerState createState() => _WavPlayerState();
@@ -273,6 +289,7 @@ class _WavPlayerState extends State<WavPlayer> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     return SamplePlot(
       wav: widget.wav,
+      visualizerType: widget.visualizerType,
       animation: _animation,
       controller: _controller,
     );
@@ -288,7 +305,14 @@ class MyHomePage extends StatefulWidget {
   _MyHomePageState createState() => _MyHomePageState();
 }
 
+enum VisualizerType {
+  time,
+  frequency,
+}
+
 class _MyHomePageState extends State<MyHomePage> {
+  VisualizerType _visualizerType = VisualizerType.time;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -296,8 +320,20 @@ class _MyHomePageState extends State<MyHomePage> {
         // Here we take the value from the MyHomePage object that was created by
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
+        actions: [
+          Switch(
+            value: _visualizerType == VisualizerType.time,
+            onChanged: (bool value) {
+              setState(() {
+                _visualizerType =
+                    value ? VisualizerType.time : VisualizerType.frequency;
+              });
+            },
+          ),
+        ],
       ),
-      body: SizedBox.expand(child: WavPlayer(wav: gWav)),
+      body: SizedBox.expand(
+          child: WavPlayer(wav: gWav, visualizerType: _visualizerType)),
     );
   }
 }

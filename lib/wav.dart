@@ -3,8 +3,8 @@ import "dart:math";
 import "dart:typed_data";
 
 void main() {
-  print("hello interwebs");
-  var file = File('examples/example.wav');
+  var file =
+      File('examples/third_party/freewavesamples.com/Casio-MT-45-Piano-C4.wav');
   var openFile = file.openSync();
   WavFile wav = WavFile(openFile);
   print("chunkId: ${wav.chunkId}");
