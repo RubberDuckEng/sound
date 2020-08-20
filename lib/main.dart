@@ -7,16 +7,7 @@ import 'package:fft/fft.dart';
 import 'package:my_complex/my_complex.dart';
 import 'dart:math';
 
-WavFile gWav;
-
 void main() {
-  String middleC =
-      '/Users/eseidel/Projects/rubberduck/sound/examples/third_party/freewavesamples.com/Casio-MT-45-Piano-C4.wav';
-  String guitar =
-      '/Users/eseidel/Projects/rubberduck/sound/examples/example.wav';
-  var file = File(guitar);
-  var openFile = file.openSync();
-  gWav = WavFile(openFile);
   runApp(MyApp());
 }
 
@@ -25,12 +16,12 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Sound Visualizer',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: MyHomePage(title: 'Flutter Demo Home Page'),
+      home: MyHomePage(),
     );
   }
 }
@@ -297,9 +288,7 @@ class _WavPlayerState extends State<WavPlayer> with TickerProviderStateMixin {
 }
 
 class MyHomePage extends StatefulWidget {
-  MyHomePage({Key key, this.title}) : super(key: key);
-
-  final String title;
+  MyHomePage({Key key}) : super(key: key);
 
   @override
   _MyHomePageState createState() => _MyHomePageState();
@@ -310,16 +299,55 @@ enum VisualizerType {
   frequency,
 }
 
+class SoundSource {
+  String name;
+  String _path;
+
+  SoundSource.fromFilePath(this.name, this._path);
+
+  RandomAccessFile openForReading() {
+    return File(_path).openSync();
+  }
+}
+
 class _MyHomePageState extends State<MyHomePage> {
   VisualizerType _visualizerType = VisualizerType.time;
+  SoundSource source;
+  WavFile wavFile;
+
+  List<SoundSource> soundSources = [
+    SoundSource.fromFilePath("Piano C4",
+        '/Users/eseidel/Projects/rubberduck/sound/examples/third_party/freewavesamples.com/Casio-MT-45-Piano-C4.wav'),
+    SoundSource.fromFilePath("Guitar",
+        '/Users/eseidel/Projects/rubberduck/sound/examples/example.wav'),
+  ];
+
+  @override
+  void initState() {
+    setSource(soundSources.first);
+    super.initState();
+  }
+
+  void setSource(SoundSource newSource) {
+    source = newSource;
+    wavFile = WavFile(source.openForReading());
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        title: DropdownButton<SoundSource>(
+          value: source,
+          onChanged: (SoundSource result) {
+            setState(() {
+              setSource(result);
+            });
+          },
+          items: soundSources.map((source) {
+            return DropdownMenuItem(value: source, child: Text(source.name));
+          }).toList(),
+        ),
         actions: [
           Switch(
             value: _visualizerType == VisualizerType.time,
@@ -333,7 +361,7 @@ class _MyHomePageState extends State<MyHomePage> {
         ],
       ),
       body: SizedBox.expand(
-          child: WavPlayer(wav: gWav, visualizerType: _visualizerType)),
+          child: WavPlayer(wav: wavFile, visualizerType: _visualizerType)),
     );
   }
 }
