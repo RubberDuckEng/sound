@@ -8,7 +8,7 @@ class FrequencyVisualizer extends Visualizer {
   Widget build(BuildContext context, Animation<Duration> current) {
     Duration now = current.value;
     Frequencies frequencies =
-        dataProvider.getFrequencies(now, now + Duration(milliseconds: 20));
+        dataProvider.getFrequencies(now, now + Duration(milliseconds: 200));
     return CustomPaint(painter: FrequencyPainter(frequencies));
   }
 }
