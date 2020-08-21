@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'wav.dart';
 import 'dart:typed_data';
 import 'dart:io';
-import 'dart:ui';
 import 'package:sound/visualizers/api.dart';
 import 'package:sound/visualizers/all.dart';
 import 'dart:math';
@@ -23,72 +22,6 @@ class MyApp extends StatelessWidget {
       ),
       home: MyHomePage(),
     );
-  }
-}
-
-class VisualizerModel {
-  Samples samples;
-  Frequencies frequencies;
-
-  int get sampleCount => samples.channels[0].length;
-  int get channelCount => samples.channels.length;
-
-  VisualizerModel.fromStereo(Int16List stereo) {
-    samples = Samples.fromStereo(stereo);
-    frequencies = Frequencies.fromSamples(samples);
-  }
-}
-
-class TimePainter extends CustomPainter {
-  // The client must not mutate |samples| after passing the list to this object.
-  final VisualizerModel model;
-
-  TimePainter(this.model);
-
-  void paint(Canvas canvas, Size size) {
-    int sampleCount = model.sampleCount;
-    int channelCount = model.channelCount;
-    List<Path> paths = List<Path>.generate(channelCount, (i) => Path());
-    double xStep = size.width / sampleCount;
-    double yRange = size.height / 2;
-
-    const double gain = 1.0;
-
-    // Integers stored in the list are truncated to their low 16 bits,
-    // interpreted as a signed 16-bit two's complement integer with values in
-    // the range -32768 to +32767.
-    double normalize(int sample) => sample / 32768.0;
-
-    void addToPath(Path path, double x, int sample) {
-      double y = gain * normalize(sample) * yRange;
-      path.lineTo(x, y);
-    }
-
-    for (int i = 0; i < sampleCount; ++i) {
-      double x = i * xStep;
-      for (int channel = 0; channel < channelCount; ++channel) {
-        addToPath(paths[channel], x, model.samples.channels[channel][i]);
-      }
-    }
-
-    canvas.drawRect(Offset.zero & size, Paint()..color = Colors.yellow[100]);
-
-    canvas.save();
-    canvas.translate(0, yRange);
-    Paint paint = Paint();
-    paint.style = PaintingStyle.stroke;
-    paint.strokeWidth = 2.0;
-
-    paint.color = Colors.pink[300];
-    canvas.drawPath(paths[0], paint);
-
-    paint.color = Colors.blue[300];
-    canvas.drawPath(paths[1], paint);
-    canvas.restore();
-  }
-
-  bool shouldRepaint(TimePainter oldDelegate) {
-    return model != oldDelegate.model;
   }
 }
 
@@ -154,15 +87,27 @@ class _WavPlayerState extends State<WavPlayer> with TickerProviderStateMixin {
   AnimationController _controller;
   Animation<Duration> _animation;
 
+  void _initAnimation() {
+    _controller?.stop();
+    _controller =
+        AnimationController(duration: widget.wav.duration, vsync: this);
+    _animation = _controller.drive(
+        Tween<Duration>(begin: const Duration(), end: widget.wav.duration));
+  }
+
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      duration: widget.wav.duration,
-      vsync: this,
-    );
-    _animation = _controller.drive(
-        Tween<Duration>(begin: const Duration(), end: widget.wav.duration));
+    _initAnimation();
+  }
+
+  @override
+  void didUpdateWidget(WavPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.wav != oldWidget.wav) {
+      print("different");
+      _initAnimation();
+    }
   }
 
   @override
@@ -189,11 +134,6 @@ class MyHomePage extends StatefulWidget {
   _MyHomePageState createState() => _MyHomePageState();
 }
 
-enum VisualizerType {
-  time,
-  frequency,
-}
-
 class SoundSource {
   String name;
   String _path;
@@ -207,6 +147,7 @@ class SoundSource {
 
 class _MyHomePageState extends State<MyHomePage>
     implements VisualizerDataProvider {
+  VisualizerFactory _visualizerFactory;
   Visualizer _visualizer;
   SoundSource source;
   WavFile wavFile;
@@ -220,26 +161,33 @@ class _MyHomePageState extends State<MyHomePage>
 
   @override
   Samples getSamples(Duration start, Duration end) {
-    // 20ms with an 8000 hz sample is about 160 samples.
-    // Moved to the closest power of two to make package:fft happy.
-    Int16List rawSamples = Int16List(pow(2, 11));
+    Duration duration = end - start;
+    int sampleCount = (duration.inMicroseconds * wavFile.sampleRate) ~/
+        Duration.microsecondsPerSecond;
+    Int16List rawSamples = Int16List(sampleCount);
     wavFile.readSamplesAtSeekTime(start, rawSamples);
-    VisualizerModel model = VisualizerModel.fromStereo(rawSamples);
-    return model.samples;
+    return Samples.fromStereo(rawSamples);
   }
 
+  // TODO: Should we really adjust the start instead?
+  // With this implementation frequencies will vizualize before
+  // being heard.
   @override
   Frequencies getFrequencies(Duration start, Duration end) {
-    Int16List rawSamples = Int16List(pow(2, 11));
+    Duration duration = end - start;
+    int sampleCount = (duration.inMicroseconds * wavFile.sampleRate) ~/
+        Duration.microsecondsPerSecond;
+    // Round up to the closest power of 2:
+    sampleCount = pow(2, (log(sampleCount) / log(2)).ceil());
+    Int16List rawSamples = Int16List(sampleCount);
     wavFile.readSamplesAtSeekTime(start, rawSamples);
-    VisualizerModel model = VisualizerModel.fromStereo(rawSamples);
-    return model.frequencies;
+    return Frequencies.fromSamples(Samples.fromStereo(rawSamples));
   }
 
   @override
   void initState() {
     setSource(soundSources.first);
-    setVisualizer(visualizers.first(this));
+    setVisualizer(visualizers.values.first);
     super.initState();
   }
 
@@ -248,24 +196,45 @@ class _MyHomePageState extends State<MyHomePage>
     wavFile = WavFile(source.openForReading());
   }
 
-  void setVisualizer(Visualizer newVisualizer) {
-    _visualizer = newVisualizer;
+  void setVisualizer(VisualizerFactory visualizerFactory) {
+    _visualizerFactory = visualizerFactory;
+    _visualizer = _visualizerFactory(this);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: DropdownButton<SoundSource>(
-          value: source,
-          onChanged: (SoundSource result) {
-            setState(() {
-              setSource(result);
-            });
-          },
-          items: soundSources.map((source) {
-            return DropdownMenuItem(value: source, child: Text(source.name));
-          }).toList(),
+        title: Row(
+          children: [
+            DropdownButton<SoundSource>(
+              value: source,
+              onChanged: (SoundSource result) {
+                setState(() {
+                  setSource(result);
+                });
+              },
+              items: soundSources.map((source) {
+                return DropdownMenuItem(
+                    value: source, child: Text(source.name));
+              }).toList(),
+            ),
+            Text(' as '),
+            DropdownButton<VisualizerFactory>(
+              value: _visualizerFactory,
+              onChanged: (VisualizerFactory visualizerFactory) {
+                setState(() {
+                  setVisualizer(visualizerFactory);
+                });
+              },
+              items: visualizers.entries.map((entry) {
+                return DropdownMenuItem<VisualizerFactory>(
+                  value: entry.value,
+                  child: Text(entry.key),
+                );
+              }).toList(),
+            ),
+          ],
         ),
       ),
       body: SizedBox.expand(
