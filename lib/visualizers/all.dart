@@ -9,4 +9,5 @@ Map<String, VisualizerFactory> visualizers = {
   'Frequency': (VisualizerDataProvider provider) =>
       FrequencyVisualizer(provider),
   'Time': (VisualizerDataProvider provider) => TimeVisualizer(provider),
+  'HAL 9000': (VisualizerDataProvider provider) => HalVisualizer(provider),
 };
