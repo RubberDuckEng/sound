@@ -1,6 +1,7 @@
 import 'package:sound/visualizers/frequency.dart';
 import 'package:sound/visualizers/time.dart';
 import 'package:sound/visualizers/api.dart';
+import 'package:sound/visualizers/hal.dart';
 
 typedef VisualizerFactory = Visualizer Function(VisualizerDataProvider);
 
