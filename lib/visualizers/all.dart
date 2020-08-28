@@ -2,6 +2,7 @@ import 'package:sound/visualizers/api.dart';
 import 'package:sound/visualizers/frequency.dart';
 import 'package:sound/visualizers/landscape.dart';
 import 'package:sound/visualizers/time.dart';
+import 'package:sound/visualizers/hal.dart';
 
 typedef VisualizerFactory = Visualizer Function(VisualizerDataProvider);
 
@@ -10,6 +11,7 @@ Map<String, VisualizerFactory> visualizers = {
   'Frequency': (VisualizerDataProvider provider) =>
       FrequencyVisualizer(provider),
   'Time': (VisualizerDataProvider provider) => TimeVisualizer(provider),
+  'HAL 9000': (VisualizerDataProvider provider) => HalVisualizer(provider),
   'Landscape': (VisualizerDataProvider provider) =>
       LandscapeVisualizer(provider),
 };
