@@ -105,7 +105,6 @@ class _WavPlayerState extends State<WavPlayer> with TickerProviderStateMixin {
   void didUpdateWidget(WavPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.wav != oldWidget.wav) {
-      print("different");
       _initAnimation();
     }
   }
