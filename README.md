@@ -1,3 +1,9 @@
+Like most of the rest of RDE, this repository was written for a
+few episodes and has not been maintained since.  You're welcome
+to fork the code and do with it as you wish.  No plans
+to maintain it further.
+
+
 # sound
 A graphic equalizer
 
